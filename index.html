@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Tuner</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tuner">
+<meta name="theme-color" content="#0e0f12">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --bg: #0e0f12;
+    --panel: #181a1f;
+    --line: #2a2d35;
+    --text: #f2f3f5;
+    --muted: #8a8f9c;
+    --good: #34d17a;
+    --near: #f5b942;
+    --far: #ff5d5d;
+    --accent: #6ea8ff;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column;
+    padding: calc(env(safe-area-inset-top) + 12px) calc(env(safe-area-inset-right) + 16px)
+             calc(env(safe-area-inset-bottom) + 16px) calc(env(safe-area-inset-left) + 16px); }
+
+  header { display: flex; justify-content: center; }
+  select { appearance: none; -webkit-appearance: none; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 12px; padding: 10px 36px 10px 14px; font-size: 17px; font-family: inherit;
+    background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+
+  .display { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity .4s; }
+  .display.idle { opacity: .35; }
+  .note { font-size: 112px; font-weight: 700; line-height: 1; letter-spacing: -2px; display: flex; align-items: flex-start; }
+  .note sup { font-size: 34px; font-weight: 600; color: var(--muted); margin: 10px 0 0 4px; }
+  .status { font-size: 22px; font-weight: 600; margin-top: 8px; min-height: 28px; }
+  .heard { color: var(--muted); font-size: 15px; margin-top: 6px; min-height: 20px; font-variant-numeric: tabular-nums; }
+  svg.meter { width: 100%; max-width: 380px; margin-top: 18px; overflow: visible; }
+  #needle { transform-origin: 150px 160px; transition: transform .12s linear; }
+  .good { color: var(--good); } .near { color: var(--near); } .far { color: var(--far); }
+
+  .strings { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 12px; }
+  .strings button { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 14px;
+    height: 60px; font-size: 20px; font-weight: 600; font-family: inherit; position: relative; padding: 0; }
+  .strings button.active { border-color: var(--accent); background: #1d2a40; }
+  .strings button.locked { border-color: var(--accent); background: var(--accent); color: #0b1220; }
+  .strings button.intune { border-color: var(--good); }
+  .mode { text-align: center; color: var(--muted); font-size: 14px; margin-top: 10px; min-height: 18px; }
+
+  .a4 { display: flex; align-items: center; justify-content: center; gap: 14px; margin-top: 14px; color: var(--muted); font-size: 15px; }
+  .a4 button { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel);
+    color: var(--text); font-size: 22px; line-height: 1; font-family: inherit; }
+  .a4 span { min-width: 92px; text-align: center; font-variant-numeric: tabular-nums; }
+
+  #overlay { position: fixed; inset: 0; background: rgba(14,15,18,.94); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; padding: 24px; text-align: center; }
+  #overlay.hidden { display: none; }
+  #startBtn { background: var(--accent); color: #0b1220; border: 0; border-radius: 999px; padding: 18px 34px;
+    font-size: 20px; font-weight: 700; font-family: inherit; }
+  #overlay p { color: var(--muted); max-width: 320px; line-height: 1.4; margin: 0; }
+  #err { color: var(--far) !important; }
+</style>
+</head>
+<body>
+  <header>
+    <select id="tuning" aria-label="Tuning"></select>
+  </header>
+
+  <section class="display idle" id="display">
+    <div class="note" id="note">–<sup></sup></div>
+    <div class="status" id="status">Play a string</div>
+    <svg class="meter" viewBox="0 0 300 175" aria-hidden="true">
+      <g id="ticks"></g>
+      <path id="zone" fill="none" stroke-width="10" stroke-linecap="round" opacity=".9"/>
+      <g id="needle">
+        <line x1="150" y1="160" x2="150" y2="34" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>
+        <circle cx="150" cy="160" r="9" fill="currentColor"/>
+      </g>
+    </svg>
+    <div class="heard" id="heard">&nbsp;</div>
+  </section>
+
+  <div class="strings" id="strings"></div>
+  <div class="mode" id="mode"></div>
+
+  <div class="a4">
+    <button id="a4down" aria-label="Lower reference">−</button>
+    <span id="a4val">A4 = 440 Hz</span>
+    <button id="a4up" aria-label="Raise reference">+</button>
+  </div>
+
+  <div id="overlay">
+    <button id="startBtn">Start tuner</button>
+    <p>Allow microphone access when asked. Nothing is recorded or sent anywhere — it all runs on your phone.</p>
+    <p id="err"></p>
+  </div>
+
+  <script src="pitch.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
