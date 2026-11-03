@@ -1,6 +1,6 @@
 // Offline support: everything is cached on first visit and served from the phone afterwards.
 // Bump VERSION whenever you change any file, so the phone picks up the new copy.
-const VERSION = 'tuner-v1';
+const VERSION = 'tuner-v2';
 const ASSETS = [
   './',
   './index.html',

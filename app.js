@@ -184,38 +184,52 @@ function loop() {
 }
 
 // ---------- start / stop ----------
+// The microphone stream is kept for the whole time the app is open (only paused when you
+// switch away), because asking iOS for a new stream is what triggers the permission prompt.
+let srcNode = null;
+const streamLive = () => !!stream && stream.getAudioTracks().some((t) => t.readyState === 'live');
+const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+
 async function start() {
   $('err').textContent = '';
   try {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    ctx = new AC();
-    ctx.resume();
-    stream = await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-    });
-    if (ctx.state !== 'running') await ctx.resume();
-    const src = ctx.createMediaStreamSource(stream);
-    analyser = ctx.createAnalyser();
-    analyser.fftSize = 4096;
-    src.connect(analyser);
-    buf = new Float32Array(analyser.fftSize);
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      ctx = new AC();
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 4096;
+      buf = new Float32Array(analyser.fftSize);
+    }
+    const resuming = ctx.resume();
+    if (!streamLive()) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      if (srcNode) srcNode.disconnect();
+      srcNode = ctx.createMediaStreamSource(stream);
+      srcNode.connect(analyser);
+    }
+    await withTimeout(resuming, 500);
+    if (ctx.state !== 'running') await withTimeout(ctx.resume(), 500);
+    if (ctx.state !== 'running') throw { name: 'NeedsTap' };
     running = true;
     $('overlay').classList.add('hidden');
     requestWakeLock();
     loop();
   } catch (e) {
-    stop();
+    pause();
+    $('startBtn').textContent = 'Start tuner';
+    $('overlay').classList.remove('hidden');
+    if (e && e.name === 'NeedsTap') return;
     $('err').textContent = e && e.name === 'NotAllowedError'
-      ? 'Microphone access was blocked. Enable it in Settings → Safari → Microphone (or for this app), then try again.'
+      ? 'Microphone access was blocked. Allow it in Settings → Apps → Safari → Microphone, then try again.'
       : 'Could not start the microphone: ' + (e && e.message ? e.message : e);
   }
 }
-function stop() {
+function pause() {
   running = false;
   cancelAnimationFrame(raf);
-  if (stream) stream.getTracks().forEach((t) => t.stop());
-  if (ctx) ctx.close().catch(() => {});
-  stream = ctx = analyser = null;
+  if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 async function requestWakeLock() {
@@ -224,10 +238,11 @@ async function requestWakeLock() {
 
 $('startBtn').addEventListener('click', start);
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && running) {
-    stop();
-    $('startBtn').textContent = 'Resume tuner';
-    $('overlay').classList.remove('hidden');
+  if (document.hidden) {
+    if (running) pause();
+  } else if (ctx && !running) {
+    // Coming back to the app: reuse the existing mic stream, no new permission prompt.
+    start();
   }
 });
 
