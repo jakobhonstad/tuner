@@ -190,7 +190,10 @@ let srcNode = null;
 const streamLive = () => !!stream && stream.getAudioTracks().some((t) => t.readyState === 'live');
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
 
+let starting = false;
 async function start() {
+  if (running || starting) return;
+  starting = true;
   $('err').textContent = '';
   try {
     if (!ctx) {
@@ -218,12 +221,13 @@ async function start() {
     loop();
   } catch (e) {
     pause();
-    $('startBtn').textContent = 'Start tuner';
     $('overlay').classList.remove('hidden');
     if (e && e.name === 'NeedsTap') return;
     $('err').textContent = e && e.name === 'NotAllowedError'
       ? 'Microphone access was blocked. Allow it in Settings → Apps → Safari → Microphone, then try again.'
       : 'Could not start the microphone: ' + (e && e.message ? e.message : e);
+  } finally {
+    starting = false;
   }
 }
 function pause() {
@@ -236,11 +240,12 @@ async function requestWakeLock() {
   try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) { /* optional */ }
 }
 
-$('startBtn').addEventListener('click', start);
+// A tap anywhere on the overlay starts the tuner (iOS sometimes requires a touch before audio can run).
+$('overlay').addEventListener('click', start);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     if (running) pause();
-  } else if (ctx && !running) {
+  } else if (!running) {
     // Coming back to the app: reuse the existing mic stream, no new permission prompt.
     start();
   }
@@ -248,6 +253,7 @@ document.addEventListener('visibilitychange', () => {
 
 buildStrings();
 updateA4();
+start(); // try to start straight away; falls back to "tap anywhere" if iOS needs a touch first
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
