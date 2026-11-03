@@ -184,8 +184,8 @@ function loop() {
 }
 
 // ---------- start / stop ----------
-// The microphone stream is kept for the whole time the app is open (only paused when you
-// switch away), because asking iOS for a new stream is what triggers the permission prompt.
+// The microphone is switched fully off whenever you leave the app, and back on when you return.
+// (With "Allow" set for this site in Safari, turning it back on happens silently.)
 let srcNode = null;
 const streamLive = () => !!stream && stream.getAudioTracks().some((t) => t.readyState === 'live');
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
@@ -234,6 +234,8 @@ function pause() {
   running = false;
   cancelAnimationFrame(raf);
   if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
+  if (stream) stream.getTracks().forEach((t) => t.stop());   // turns the mic (and iOS mic indicator) off
+  stream = null;
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
 }
 async function requestWakeLock() {
