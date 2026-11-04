@@ -3,7 +3,8 @@
 (function (root) {
   'use strict';
 
-  function detectPitch(buf, sampleRate, minFreq, maxFreq, threshold) {
+  // minRms: how loud the sound must be. Lower = more sensitive (used to follow a fading string).
+  function detectPitch(buf, sampleRate, minFreq, maxFreq, threshold, minRms) {
     minFreq = minFreq || 60;
     maxFreq = maxFreq || 1100;
     threshold = threshold || 0.12;
@@ -14,7 +15,7 @@
     let rms = 0;
     for (let i = 0; i < n; i++) rms += buf[i] * buf[i];
     rms = Math.sqrt(rms / n);
-    if (rms < 0.006) return null;
+    if (rms < (minRms || 0.006)) return null;
 
     const maxTau = Math.min(Math.floor(sampleRate / minFreq), Math.floor(n / 2));
     const minTau = Math.max(2, Math.floor(sampleRate / maxFreq));

@@ -44,7 +44,7 @@ const state = {
   locked: null,
 };
 let ctx = null, analyser = null, stream = null, buf = null, raf = 0, running = false, wakeLock = null;
-let hist = [], pending = [], lastHeard = 0;
+let hist = [], pending = [], lastHeard = 0, noiseFloor = 0.001, lowpass = null;
 
 // ---------- UI setup ----------
 const tuningSel = $('tuning');
@@ -171,12 +171,25 @@ function render(f) {
 function loop() {
   if (!running) return;
   analyser.getFloatTimeDomainData(buf);
-  const r = detectPitch(buf, ctx.sampleRate);
   const now = performance.now();
+  // Track the room's background noise level (follows quiet moments, rises slowly otherwise).
+  let sq = 0;
+  for (let i = 0; i < buf.length; i++) sq += buf[i] * buf[i];
+  const level = Math.sqrt(sq / buf.length);
+  noiseFloor = level < noiseFloor ? level : noiseFloor * 1.0005;
+
+  let r = detectPitch(buf, ctx.sampleRate);
+  if (!r && hist.length) {
+    // Already following a note: keep listening for it (within ±2 semitones, so turning the peg
+    // is followed) with a far more sensitive setting, so a fading string keeps registering.
+    const f0 = median(hist);
+    // Only while the note is still clearly louder than the background noise.
+    r = detectPitch(buf, ctx.sampleRate, f0 * 0.89, f0 * 1.12, 0.2, Math.max(0.0008, noiseFloor * 3));
+  }
   if (r && r.freq >= 60 && r.freq <= 1100) {
     lastHeard = now;
     if (pushFreq(r.freq)) render(median(hist));
-  } else if (now - lastHeard > 600) {
+  } else if (now - lastHeard > 1500) {
     $('display').classList.add('idle');
     hist = []; pending = [];
   }
@@ -202,6 +215,11 @@ async function start() {
       analyser = ctx.createAnalyser();
       analyser.fftSize = 4096;
       buf = new Float32Array(analyser.fftSize);
+      // Remove hiss above the guitar's range so quiet notes stand out from background noise.
+      lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.value = 1500;
+      lowpass.connect(analyser);
     }
     const resuming = ctx.resume();
     if (!streamLive()) {
@@ -210,7 +228,7 @@ async function start() {
       });
       if (srcNode) srcNode.disconnect();
       srcNode = ctx.createMediaStreamSource(stream);
-      srcNode.connect(analyser);
+      srcNode.connect(lowpass);
     }
     await withTimeout(resuming, 500);
     if (ctx.state !== 'running') await withTimeout(ctx.resume(), 500);
